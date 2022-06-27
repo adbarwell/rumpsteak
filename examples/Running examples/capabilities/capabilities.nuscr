@@ -1,0 +1,34 @@
+// A bank system, with a client who can request certain operations.
+// The system itself is going to be some manner of micro-service type affair.
+
+// Example:
+// The client sends his account number and password
+// Authentication happens as usual; but from this, we produce a capability that
+// can access the record/location in memory. (Perhaps as part of a database?
+// The database interface could be an FFI.)
+// (Can capabilities be modified; e.g. read -> write capability?)
+// Once authenticated, the client is provided with a list of services
+// (e.g. view transactions, withdraw, deposit, request new card; even better:
+// each action gives the option of which account to apply the operation to).
+// The client can (repeatedly) select one of those services, providing any
+// additional arguments as necessary.
+// The front-end bank server will take those requests and fire them off
+// to the relevant micro-service, alongside the authentication capability.
+// These requests may generate additional capabilities (e.g. transferring money 
+// between two accounts generates a capability that permits write access to
+// both accounts). (There could be a participant in the protocol that
+// represents external communication; e.g. transferring from another bank.)
+
+// Let's start off with something extremely simple: transferring money between
+// two accounts owned by the same user at the same bank (e.g. a current and
+// savings account).
+
+// C = Customer; FE = Front End; AW = Account Withdrawals; AD = Account Deposits
+global protocol SimpleBank(role C, role FE) { // , role AW, role AD) {
+  choice at C {
+    transfer(Capability) from C to FE;
+  }
+}
+
+// The capabilities will point at mutexes / will be a replacement for mutexes.
+// These are Rust type-level mutexes.
