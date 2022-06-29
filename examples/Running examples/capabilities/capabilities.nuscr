@@ -24,9 +24,34 @@
 // savings account).
 
 // C = Customer; FE = Front End; AW = Account Withdrawals; AD = Account Deposits
-global protocol SimpleBank(role C, role FE) { // , role AW, role AD) {
-  choice at C {
-    transfer(Capability) from C to FE;
+// global protocol SimpleBank(role C, role FE, role AW, role AD) {
+//   choice at C {
+//     transfer(x : PL1) from C to FE;
+//     withdraw(x : PL2) from FE to AW;
+//     choice at AW {
+//       ok1(x : PL3) from AW to FE;
+//       deposit(x : PL3_1) from FE to AD;
+//       choice at AD {
+//         ok2(x : PL3_2) from AD to FE;
+//         ok3(x : PL3_2_1) from FE to AD;
+//       } or {
+//         ko0(x : PL4_3) from AD to FE;
+//         // rollback last withdrawal
+//       }
+//     } or {
+//       ko1(x : PL4) from AW to FE;
+//       ko2(x : PL4_1) from FE to C;
+//     }
+//   }
+// }
+
+// Better idea: let's fix capabilities first.
+global protocol SimpleBank(role C, role B) {
+  transfer(x : PL1) from C to B;
+  choice at B {
+    ok(x : PL2) from B to C;
+  } or {
+    ko(x : PL3) from B to C;
   }
 }
 

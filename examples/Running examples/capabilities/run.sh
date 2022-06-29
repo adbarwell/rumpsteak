@@ -1,43 +1,49 @@
 #!/bin/sh
 
-INITDIR="$(pwd)"
-DIR="$(dirname "$0")"
-cd "$DIR"
-DIR="$(pwd)"
+GENERATE="$(which rumpsteak-generate || echo "../../../target/debug/rumpsteak-generate")"
 
-run() {
-	for example in ./*; do 
-		if [ -e "$example"/run.sh ]; then
-			echo "Running example $example"
-			cd "$example"
-			./run.sh
-			cd "$DIR"
-			echo ""
-		fi
+failwith() {
+	echo [FAIL] $1 1>&2
+	exit 127
+}
+
+nuscr2dot() {
+	for endpoint in C B; do
+		nuscr -fsm $endpoint@SimpleBank capabilities.nuscr | sed s/G/$endpoint/ > $endpoint.dot || failwith "Can not generate .dot files (nuscr error)."
 	done
-	cd "$INITDIR"
+}
+
+checkdots() {
+	for endpoint in C B; do
+		cmp $endpoint.dot ${endpoint}_expected.dot || failwith "$endpoint.dot is not identical to what is expected."
+	done
+}
+
+dot2rs() {
+	RUST_BACKTRACE=1 $GENERATE --name SimpleBank C.dot B.dot > simplebank.rs || failwith "Can not generate .rs file (rumpsteak-generate error)."
+}
+
+checkrs() {
+	cmp 3buyers.rs 3buyers_expected.rs || failwith "oauth.rs is not what is expected."
 }
 
 clean() {
-	for example in ./*; do 
-		if [ -e "$example"/run.sh ]; then
-			echo "Cleaning example $example"
-			cd "$example"
-			./run.sh clean
-			cd "$DIR"
-			echo ""
-		fi
-	done
-	cd "$INITDIR"
+	rm *.dot
+	rm capabilities.rs
 }
 
-case "$1" in 
+case "$1" in
 	"clean")
 		clean
-		break;;
-	"quit")
-		break;;
-	*) 
-		run
+		break ;;
+	"config")
+		echo "$GENERATE"
+		break ;;
+	*)
+		nuscr2dot
+		# checkdots
+		dot2rs
+		# checkrs
+		echo "Test successful" 1>&2
 		;;
 esac

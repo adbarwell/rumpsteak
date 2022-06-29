@@ -1,0 +1,12 @@
+digraph B {
+  0;
+  1;
+  3;
+  5;
+  
+  
+  0 -> 1 [label="C?transfer(x: PL1)", ];
+  1 -> 3 [label="C!ok(x: PL2)", ];
+  1 -> 5 [label="C!ko(x: PL3)", ];
+  
+  }
