@@ -8,7 +8,7 @@ use std::{
     any::Any,
     convert::Infallible,
     future::Future,
-    marker::{self, PhantomData},
+    marker::{self, PhantomData}, fmt::{Display, Debug},
 };
 use thiserror::Error;
 
@@ -145,10 +145,13 @@ impl<'q, Q: Route<R>, R, L, S: FromState<'q, Role = Q>> Send<'q, Q, R, L, S>
 where
     Q::Message: Message<L>,
     Q::Route: Sink<Q::Message> + Unpin,
+    Q : Display,
+    L : Display + Copy
 {
     #[inline]
     pub async fn send(self, label: L) -> Result<S, SendError<Q, R>> {
         self.state.role.route().send(Message::upcast(label)).await?;
+        println!("Role {} Sent Message Label: {}", self.state.role, label);
         Ok(FromState::from_state(self.state))
     }
 }
@@ -179,12 +182,15 @@ impl<'q, Q: Route<R>, R, L, S: FromState<'q, Role = Q>> Receive<'q, Q, R, L, S>
 where
     Q::Message: Message<L>,
     Q::Route: Stream<Item = Q::Message> + Unpin,
+    Q : Display,
+    L: Display + Copy
 {
     #[inline]
     pub async fn receive(self) -> Result<(L, S), ReceiveError> {
         let message = self.state.role.route().next().await;
         let message = message.ok_or(ReceiveError::EmptyStream)?;
         let label = message.downcast().or(Err(ReceiveError::UnexpectedType))?;
+        println!("Role {} Received Message: {}", self.state.role, label);
         Ok((label, FromState::from_state(self.state)))
     }
 }
@@ -224,8 +230,11 @@ where
         Q::Message: Message<L>,
         C: Choice<'q, L>,
         C::Session: FromState<'q, Role = Q>,
+        Q : Display,
+        L : Display + Copy + Debug
     {
         self.state.role.route().send(Message::upcast(label)).await?;
+        println!("Role {} Sent Message: {:#?}", self.state.role, label);
         Ok(FromState::from_state(self.state))
     }
 }
@@ -263,11 +272,14 @@ impl<'q, Q: Role, R, C> FromState<'q> for Branch<'q, Q, R, C> {
 impl<'q, Q: Route<R>, R, C: Choices<'q, Role = Q>> Branch<'q, Q, R, C>
 where
     Q::Route: Stream<Item = Q::Message> + Unpin,
+    Q : Display,
+    Q::Message : Debug,
 {
     #[inline]
     pub async fn branch(self) -> Result<C, ReceiveError> {
         let message = self.state.role.route().next().await;
         let message = message.ok_or(ReceiveError::EmptyStream)?;
+        println!("Role {} Received Message: {:#?}", self.state.role, message);
         let choice = C::downcast(self.state, message);
         choice.or(Err(ReceiveError::UnexpectedType))
     }

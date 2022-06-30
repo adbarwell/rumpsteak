@@ -9,7 +9,7 @@ use ::rumpsteak::{
 };
 
 // why does it not generate this for us automatically...?
-use std::error::Error;
+use std::{error::Error, fmt};
 
 type Channel = Bidirectional<UnboundedSender<Label>, UnboundedReceiver<Label>>;
 
@@ -35,16 +35,24 @@ struct B {
 }
 
 #[derive(Message)]
+#[derive(Clone, Copy)]
+#[derive(Debug)]
 enum Label {
     Transfer(Transfer),
     Ok(Okay),
     Ko(Ko),
 }
 
+#[derive(Clone, Copy)]
+#[derive(Debug)]
 struct Transfer(PL1);
 
+#[derive(Clone, Copy)]
+#[derive(Debug)]
 struct Okay(PL2);
 
+#[derive(Clone, Copy)]
+#[derive(Debug)]
 struct Ko(PL3);
 
 #[session]
@@ -67,14 +75,68 @@ enum SimpleBankB1 {
 
 // -- [Generated above, written below] ----------------------------------------
 
+#[derive(Clone, Copy)]
+#[derive(Debug)]
 struct PL1 {
     value : bool
 }
+#[derive(Clone, Copy)]
+#[derive(Debug)]
 struct PL2 {
     value : bool
 }
+#[derive(Clone, Copy)]
+#[derive(Debug)]
 struct PL3 {
     value : bool
+}
+
+impl fmt::Display for C {
+    fn fmt(&self, f : &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "rC")
+    }
+}
+
+impl fmt::Display for B {
+    fn fmt(&self, f : &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "rB")
+    }
+}
+
+impl fmt::Display for Label {
+    fn fmt(&self, f : &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "label: {}", self.to_string())
+    }
+}
+
+impl fmt::Display for Transfer {
+    fn fmt(&self, f : &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "lTransfer({})", self.0)
+    }
+}
+
+impl fmt::Display for Okay {
+    fn fmt(&self, f : &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "lOkay({})", self.0)
+    }
+}
+
+impl fmt::Display for PL1 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "PL1( value = {} )", self.value)
+    }
+}
+
+impl fmt::Display for PL2 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "PL2( value = {} )", self.value)
+    }
+}
+
+impl fmt::Display for PL3 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "PL3( value = {} )", self.value)
+    }
 }
 
 async fn c(role : &mut C) -> Result<(), Box<dyn Error>> {
