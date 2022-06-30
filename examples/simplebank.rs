@@ -77,8 +77,63 @@ enum SimpleBankB1 {
 
 #[derive(Clone, Copy)]
 #[derive(Debug)]
+enum Permission {
+    Execute,
+    Load,
+    Store,
+    ExecuteC,
+    LoadC,
+    StoreC,
+    Sealable,
+    Releasable,
+}
+
+trait CReadable {
+    fn iAmReadable(&self) -> String {
+        "placeholder text (CReadable)".to_string() // ????
+    }
+}
+
+// This is a very low-level mock-up; presumably we can abstract over this?
+// make it a trait that specific 'pointer types' can implement?
+#[derive(Clone, Copy)]
+#[derive(Debug)]
+struct Capability<T> {
+    // tag : bool, // whether this is valid or not???
+    perms : Permission, // really a 12-element array of booleans
+                        // I actually want a vector here -- ask MV how later
+                        // Alternatively, we want to make permissions traits?
+                        // traits is a silly idea -- they apply to everything
+    // uperms : // software defined permissions; can we use this?
+                // maybe a vector of boolean functions?
+    sealed : bool, // I'm still not sure what practical meaning this has...
+                   // sealed = a pointer to a function/closure that we call?
+    value : T   // abstraction over offset, address, and length; a pointer?
+}
+
+// capabilities need to be encapsulated such that we can only read the value
+// if perms includes Load
+
+type CAccessErr = Error;
+
+fn readValue<T>(c : Capability<T>) -> Result<T,CAccessErr> {
+    if c.perms == Load {
+        Ok(c.value)
+    } else {
+        Err(CAccessErr)
+    }
+}
+
+//instead, let's have capabilities be traits that extend ordinary types
+// and can be used as things that can control stuff at both the type level and runtime?
+
+#[derive(Clone, Copy)]
+#[derive(Debug)]
 struct PL1 {
-    value : bool
+    capability : Capability<u32>, // user has access permissions
+    accountSrc : u32, // Nat
+    accountTgt : u32,
+    amount : u32,
 }
 #[derive(Clone, Copy)]
 #[derive(Debug)]
@@ -141,7 +196,8 @@ impl fmt::Display for PL3 {
 
 async fn c(role : &mut C) -> Result<(), Box<dyn Error>> {
     try_session(role, |s : SimpleBankC<'_, _>|  async {
-        let s = s.send(Transfer(PL1 {value : true} )).await?;
+        let m : PL1 = undefined;
+        let s = s.send(Transfer(m)).await?;
         match s.branch().await? {
             SimpleBankC1::Ok(x, end) => {
                 Result::Ok(((), end))

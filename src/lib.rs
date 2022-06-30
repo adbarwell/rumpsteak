@@ -146,12 +146,12 @@ where
     Q::Message: Message<L>,
     Q::Route: Sink<Q::Message> + Unpin,
     Q : Display,
-    L : Display + Copy
+    L : Debug + Copy
 {
     #[inline]
     pub async fn send(self, label: L) -> Result<S, SendError<Q, R>> {
         self.state.role.route().send(Message::upcast(label)).await?;
-        println!("Role {} Sent Message Label: {}", self.state.role, label);
+        println!("Role {} Sent Message Label: {:#?}", self.state.role, label);
         Ok(FromState::from_state(self.state))
     }
 }
