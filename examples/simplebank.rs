@@ -9,7 +9,7 @@ use ::rumpsteak::{
 };
 
 // why does it not generate this for us automatically...?
-use std::{error::Error, fmt, cmp};
+use std::{error::Error, fmt, cmp, sync::Mutex};
 
 type Channel = Bidirectional<UnboundedSender<Label>, UnboundedReceiver<Label>>;
 
@@ -249,3 +249,142 @@ fn main() {
     try_join!(c(&mut roles.c), b(&mut roles.b, xs)).unwrap();
   });
 }
+
+
+// We need some sort of representation of capabilities in Rust.
+// These will presumably be part of a library and directly call the actual
+// capabilities. This means, we can take a little liberty in re representation.
+// We presumably want to generate a capability over a value.
+// We want Traits to indicate which operations we can apply to a capability
+// and thus the underlying value by proxy.
+// This means, we should really have some sort of pointer within the capability
+// to the value itself, rather than just including the value in the capability
+// directly.
+
+/* This is too complicated and Rust doesn't support quite the sort of things
+   I'm thinking of/hoping for.
+#[derive(Debug)]
+enum Perms {
+  Read,
+  Write,
+  Execute,
+  // ...
+}
+
+trait Op<T> {
+  fn op(t: T) -> bool;
+}
+
+// T is the base value type.
+// We need some way of representing the idea that we are pointing at the value
+// this can be done either by mutexes or by reference counters (I think)
+// I understand mutexes from C, so let's assume these for now.
+struct Capability<T> {
+  perms : Vec<Perms>,
+  traits : Vec<Fn(T) -> bool>,
+  value : Mutex<T>
+}
+
+fn op (x : Capability<T>) -> a {
+  for op in x.traits {
+    op.op(x.value.get_mut())
+  }
+}
+
+trait READ{};
+
+struct RCapability{
+  ...
+}
+
+impl READ for RCapability{}
+
+p -> q : tf(capability<READ, int> )
+
+q() {
+  reeive p {
+    label(x) ->
+
+  }
+}
+
+
+fn receive(C<int>) -> ReadAccess<int>
+where 
+  C: Read,
+{
+
+}
+*/
+
+
+// The core part of a capability -- this one only has read enabled
+struct RCbty<T> {
+  value : Mutex<T>
+}
+
+// A capability is a pointer to/wrapper over T
+// Variants are derived by the default permissions
+enum Capability<T> {
+  RCbty(RCbty<T>),
+  WCbty,
+  RWCbty,
+  // &c.
+}
+
+// The problem is that we still don't know what operation we can apply to the
+// underlying t (that are guarded by the capability)
+
+// Let's assume that we're dealing with an integer (we're sending the reference)
+// We therefore want to be able to apply logical operations over the capability
+// as well as things like Show (e.g. Show, Eq, Ord)
+fn ceq(x : Capability<i32>, y : Capability<i32>) -> Result<bool, CError> {
+  if canRead(&x) && canRead(&y) {
+    let x = getValue(x);
+    let y = getValue(y);
+    Ok(x == y)
+  } else {
+    todo!()
+  }
+}
+
+#[derive(Debug)]
+struct CError();
+impl<T : fmt::Debug,U : fmt::Debug> fmt::Display for CError {
+  fn fmt(&self, f : &mut fmt::Formatter) -> fmt::Result {
+    write!(f, "CError")
+  }
+}
+impl<T : fmt::Debug,U : fmt::Debug> Error for CError {
+  fn description(&self) -> &str {
+    "CErr"
+  }
+}
+
+
+fn canRead<T>(x : &Capability<T>) -> bool {
+  match x {
+    Capability::RCbty(_y) => true,
+    Capability::WCbty => false,
+    Capability::RWCbty => true
+  }
+}
+
+fn getValue<T>(x : Capability<T>) -> Result<T,CError> {
+  match x {
+    Capability::RCbty(y) => {
+      let z = sync::Mutex::get_mut(y);
+      todo!()
+      // match y.value.lock() {
+      //   Ok(z) => {
+      //     let w = z.unwrap();
+      //     todo!()
+      //   },
+      //   Err(_) => todo!(),
+      // }
+    },
+    Capability::WCbty => todo!(),
+    Capability::RWCbty => todo!()
+  }
+}
+
