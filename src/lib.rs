@@ -183,14 +183,14 @@ where
     Q::Message: Message<L>,
     Q::Route: Stream<Item = Q::Message> + Unpin,
     Q : Display,
-    L: Display + Copy
+    L: Display + Copy + Debug
 {
     #[inline]
     pub async fn receive(self) -> Result<(L, S), ReceiveError> {
         let message = self.state.role.route().next().await;
         let message = message.ok_or(ReceiveError::EmptyStream)?;
         let label = message.downcast().or(Err(ReceiveError::UnexpectedType))?;
-        println!("Role {} Received Message: {}", self.state.role, label);
+        println!("Role {} Received Message: {:#?}", self.state.role, label);
         Ok((label, FromState::from_state(self.state)))
     }
 }
