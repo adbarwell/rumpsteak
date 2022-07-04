@@ -9,7 +9,7 @@ use ::rumpsteak::{
 };
 
 // why does it not generate this for us automatically...?
-use std::{error::Error, fmt, cmp, sync::Mutex};
+use std::{error::Error, fmt, cmp, sync::{Mutex, Arc, MutexGuard}};
 
 type Channel = Bidirectional<UnboundedSender<Label>, UnboundedReceiver<Label>>;
 
@@ -35,7 +35,7 @@ struct B {
 }
 
 #[derive(Message)]
-#[derive(Clone, Copy)]
+// #[derive(Clone, Copy)]
 #[derive(Debug)]
 enum Label {
   Transfer(Transfer),
@@ -43,7 +43,7 @@ enum Label {
   Ko(Ko),
 }
 
-#[derive(Clone, Copy)]
+// #[derive(Clone, Copy)]
 #[derive(Debug)]
 struct Transfer(PL1);
 
@@ -75,11 +75,13 @@ enum SimpleBankB1 {
 
 // -- [Generated above, written below] ----------------------------------------
 
-#[derive(Clone, Copy)]
+// #[derive(Clone, Copy)]
 #[derive(Debug)]
-struct PL1 {
-  accountSrc : u32, // Nat
-  accountTgt : u32,
+struct PL1 { // u32 = Nat
+  accountSrc : Capability<(u32, Capability<u32>)>,
+  accountTgt : Capability<(u32, Capability<u32>)>,
+  writeSrc : Capability<u32>,
+  writeTgt : Capability<u32>,
   amount : u32,
 }
 #[derive(Clone, Copy)]
@@ -131,7 +133,7 @@ impl fmt::Display for Ko {
 
 impl fmt::Display for PL1 {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    write!(f, "PL1( act1 = {}, act2 = {}, amt = {} )", self.accountSrc, self.accountTgt, self.amount)
+    write!(f, "{:#?}", self)
   }
 }
 
@@ -147,56 +149,117 @@ impl fmt::Display for PL3 {
   }
 }
 
-async fn c(role : &mut C) -> Result<(), Box<dyn Error>> {
+async fn c(role : &mut C,
+           r1   : Capability<(u32,Capability<u32>)>,
+           r2   : Capability<(u32,Capability<u32>)>,
+           w1v  : Capability<u32>,
+           rw2v : Capability<u32>)
+      -> Result<(), Box<dyn Error>> {
   try_session(role, |s : SimpleBankC<'_, _>|  async {
-    let m : PL1 = PL1 { accountSrc: 1, accountTgt: 2, amount: 10 };
-    let x = Mutex::new(42);
-    let x2 = Mutex::new(42);
-    let c : Capability<u32> = crate::Capability::RCbty(RCbty{ value : x });
-    let c2 : Capability<u32> = crate::Capability::RCbty(RCbty{ value : x2 });
-    let y = ceq(c,c2);
-    println!("y : {:#?}", y);
-    let s = s.send(Transfer(m)).await?;
+    let msg : PL1 = PL1 { accountSrc : r2,
+                          accountTgt : r1,
+                          writeSrc   : rw2v,
+                          writeTgt   : w1v,
+                          amount     : 10 };
+    let s = s.send(Transfer(msg)).await?;
     match s.branch().await? {
-      SimpleBankC1::Ok(x, end) => {
-        Result::Ok(((), end))
-      }
-      SimpleBankC1::Ko(y, end) => {
-        Result::Ok(((), end))
-      }
+      SimpleBankC1::Ko(_, end) => Ok(((), end)),
+      SimpleBankC1::Ok(_, end) => Ok(((), end)),
     }
+
+
+  //   let m : PL1 = PL1 { accountSrc: 1, accountTgt: 2, amount: 10 };
+  //   let src = Mutex::new(1);
+  //   let x2 = Mutex::new(42);
+  //   let c : Capability<u32> = crate::Capability::RCbty(RCbty{ value : x });
+  //   let c2 : Capability<u32> = crate::Capability::RCbty(RCbty{ value : x2 });
+  //   let y = ceq(c,c2);
+  //   println!("y : {:#?}", y);
+  //   let s = s.send(Transfer(m)).await?;
+  //   match s.branch().await? {
+  //     SimpleBankC1::Ok(x, end) => {
+  //       Result::Ok(((), end))
+  //     }
+  //     SimpleBankC1::Ko(y, end) => {
+  //       Result::Ok(((), end))
+  //     }
+  //   }
   }).await
 }
 
-fn b1(x : PL1, acts : Vec<(u32,u32)>) -> Result<Vec<(u32,u32)>, UpdateValueErr<u32,u32>> {
-  let f = |y : u32| -> u32 {y - x.amount};
-  let g = |y : u32| -> u32 {y + x.amount};
-  let acts = updateValue(x.accountSrc, acts, &f)?;
-  updateValue(x.accountTgt, acts, &g)
+// fn b1(x : PL1, acts : Vec<(u32,u32)>) -> Result<Vec<(u32,u32)>, UpdateValueErr<u32,u32>> {
+//   let f = |y : u32| -> u32 {y - x.amount};
+//   let g = |y : u32| -> u32 {y + x.amount};
+//   let acts = updateValue(x.accountSrc, acts, &f)?;
+//   updateValue(x.accountTgt, acts, &g)
+// }
+
+fn applyFn(x : &mut Capability<u32>, f : &dyn Fn(u32) -> u32) {
+  match x {
+    Capability::RCbty(_) => todo!(),
+    Capability::WCbty(x) => {
+      let x1 = &x.value;
+      let mut x2 = x1.lock().unwrap();
+      *x2 = f(*x2)
+    },
+    Capability::RWCbty(x) => {
+      let x1 = &x.value;
+      let mut x2 = x1.lock().unwrap();
+      *x2 = f(*x2)
+    }
+  }
 }
 
-async fn b(role : &mut B, acts : Vec<(u32,u32)>) -> Result<(), Box<dyn Error>> {
+async fn b(role : &mut B, acts : Vec<Capability<(u32, Capability<u32>)>>)
+      -> Result<(), Box<dyn Error>> {
   try_session(role, |s : SimpleBankB<'_, _>| async {
-    let (Transfer(x), s) = s.receive().await?;
-    if isKey(x.accountSrc, &acts)
-       && isKey(x.accountTgt, &acts)
-       && lookupKey(x.accountSrc, &acts) >= Some(&x.amount) {
-      match b1(x, acts) {
-        Ok(acts) => {
-          println!("acts: {:#?}", &acts);
-          let end = s.select(Okay(PL2 {value : true})).await?;
-          Result::Ok(((), end))
-        }
-        Err(UpdateValueErr(acts)) => {
-          println!("acts: {:#?}", &acts);
-          let end = s.select(Ko(PL3 { value : false })).await?;
-          Result::Ok(((), end))
-        }
-      }
+    let (Transfer(mut x), s) = s.receive().await?;
+    println!("c1 : {:#?}", elem(&x.accountSrc, &acts));
+    println!("c2 : {:#?}", elem(&x.accountTgt, &acts));
+    println!("c3 : {:#?}", getValue(&x.writeSrc) >= Ok(x.amount));
+    if elem(&x.accountSrc, &acts)
+       && elem(&x.accountTgt, &acts)
+       && getValue(&x.writeSrc) >= Ok(x.amount) {
+      // let f = |mut y : MutexGuard<u32>| {*y -= &x.amount};
+      // let g = |mut y : MutexGuard<u32>| {*y += &x.amount};
+      // apply(&mut x.writeSrc, &f)?;
+
+      let y = &mut x.writeSrc;
+      let amt = x.amount.clone();
+      let f = |z : u32| {z - amt};
+      applyFn(y, &f);
+      let y = &mut x.writeTgt;
+      let amt = x.amount.clone();
+      let f = |z : u32| {z + amt};
+      applyFn(y, &f);
+
+      // apply(&mut x.writeTgt, &g).unwrap();
+      println!("xs : {:#?}", &acts);
+      let end = s.select(Okay(PL2 { value : true })).await?;
+      Ok(((), end))
     } else {
-      let end = s.select(Ko(PL3 { value : false })).await?;
-      Result::Ok(((), end))
+      todo!()
     }
+
+   //   if isKey(x.accountSrc, &acts)
+  //      && isKey(x.accountTgt, &acts)
+  //      && lookupKey(x.accountSrc, &acts) >= Some(&x.amount) {
+  //     match b1(x, acts) {
+  //       Ok(acts) => {
+  //         println!("acts: {:#?}", &acts);
+  //         let end = s.select(Okay(PL2 {value : true})).await?;
+  //         Result::Ok(((), end))
+  //       }
+  //       Err(UpdateValueErr(acts)) => {
+  //         println!("acts: {:#?}", &acts);
+  //         let end = s.select(Ko(PL3 { value : false })).await?;
+  //         Result::Ok(((), end))
+  //       }
+  //     }
+  //   } else {
+  //     let end = s.select(Ko(PL3 { value : false })).await?;
+  //     Result::Ok(((), end))
+  //   }
   }).await
 }
 
@@ -247,13 +310,101 @@ fn updateValue<T : cmp::PartialEq + Copy,U : Copy>(k : T, xs : Vec<(T,U)>, f : &
   }
 }
 
+fn mk_bank_store()
+  -> Result<(Arc<Mutex<u32>>,
+             Arc<Mutex<u32>>,
+             Vec<Capability<(u32, Capability<u32>)>>), CError> {
+  let acc1vm : Arc<Mutex<u32>> = Arc::new(Mutex::new(10));
+  let acc1v : Capability<u32> =
+    Capability::RCbty(RCbty { value : acc1vm.clone() });
+  let acc1m : Arc<Mutex<(u32, Capability<u32>)>> =
+    Arc::new(Mutex::new((1, acc1v)));
+  let acc1 = // bank entry; read-write
+    Capability::RWCbty(RWCbty { value : acc1m.clone() });
+
+  let acc2vm : Arc<Mutex<u32>> = Arc::new(Mutex::new(50));
+  let acc2v : Capability<u32> =
+    Capability::RCbty(RCbty { value : acc2vm.clone() });
+  let acc2m : Arc<Mutex<(u32, Capability<u32>)>> =
+    Arc::new(Mutex::new((1, acc2v)));
+  let acc2 = // bank entry; read-write
+    Capability::RWCbty(RWCbty { value : acc2m.clone() });
+  let xs = vec![acc1,acc2];
+  Ok((acc1vm, acc2vm, xs))
+}
+
+fn mk_capabilities_for_c<T>(xs : &Vec<Capability<T>>) -> Result<(Capability<T>, Capability<T>), CError> {
+  let r1 = cp_capability(&xs[0])?;
+  // let r1 = rmW_capability(r1)?;
+  let r2 = cp_capability(&xs[1])?;
+  // let r2 = rmW_capability(r2)?;
+  Ok((r1, r2))
+}
+
 fn main() {
   let mut roles = Roles::default();
-  let xs = vec![(1,10),(2,50)];
-  println!("acts0: {:#?}", &xs);
-  executor::block_on(async {
-    try_join!(c(&mut roles.c), b(&mut roles.b, xs)).unwrap();
-  });
+
+  // the bank has a list of account number-value pairs, which it can read from
+  // (ignoring new accounts)
+  // in order to update an account, it needs a capability to  write to the
+  // account balance (which is provided by the user)
+  
+  // xs : List (Capability (Nat, Capability Nat))
+  match mk_bank_store() {
+    Ok((m1v, m2v, xs)) => {
+      println!("xs : {:#?}", &xs);
+      let w1v = Capability::RWCbty(RWCbty { value : m1v });
+      let rw2v = Capability::WCbty(WCbty { value : m2v });
+      // now, we have a bank store, alongside two capabilities that can 
+      // write to the accounts
+      // but you also need the ability to prove that you can read/access
+      // the accounts you're changing.
+      // so we clone both accounts' capabilities & demote them to read only
+      let (r1, r2) = mk_capabilities_for_c(&xs).unwrap();
+      // now, we have a bank store, two capabilities that will allow us to
+      // write to the values of our accounts, and two capabilities that denote
+      // the client's access to two accounts
+      // next, we need to spawn off our processes
+      executor::block_on(async {
+        try_join!(c(&mut roles.c, r1, r2, w1v, rw2v),
+                  b(&mut roles.b, xs)).unwrap();
+      })
+    }
+    Err(e) => panic!("couldn't create bank store")
+  }
+
+  // the client now needs some way of giving permission to modify the thing in 
+  // acc1 and acc2; read access only needs to be given on acc1
+  // which means that we need the core value of both 1 & 2, which means making
+  // the capabilities separately is probably not 
+
+
+  // // the account number (can be shared)
+  // let acc1no : Arc<Mutex<u32>> = Arc::new(Mutex::new(1));
+  // let acc1v : Arc<Mutex<(u32,u32)>> =
+  //   Arc::new(Mutex::new((1,10)));
+  // // acc1 in the database (a pair)
+  // let acc1 : Capability<(u32,u32)> =
+  //   Capability::RCbty(RCbty { value : acc1v });
+  // // acc1 as passed to C (the acc. no.)
+  // let acc1c : Capability<u32> =
+  //   Capability::RCbty(RCbty { value : acc1no });
+
+  // // the account number (can be shared)
+  // let acc2no = Arc::new(Mutex::new(2));
+  // let acc2v : Arc<Mutex<(u32,u32)>> =
+  //   Arc::new(Mutex::new((2,50)));
+  // // acc2 in the database =
+  // let acc2 : Capability<(u32,u32)> = Capability::RCbty(RCbty { value : acc2v });
+  // // acc2 as passed to C
+  // let acc2c : Capability<u32> =
+  //   Capability::RCbty(RCbty { value : acc2no });
+
+  // let xs = vec![acc1,acc2];
+  // println!("acts0: {:#?}", &xs);
+  // executor::block_on(async {
+  //   try_join!(c(&mut roles.c, acc1c, acc2c), b(&mut roles.b, xs)).unwrap();
+  // });
 }
 
 
@@ -325,17 +476,88 @@ where
 
 
 // The core part of a capability -- this one only has read enabled
+#[derive(Debug)]
 struct RCbty<T> {
-  value : Mutex<T>
+  value : Arc<Mutex<T>>
+}
+
+#[derive(Debug)]
+struct WCbty<T> {
+  value : Arc<Mutex<T>>
+}
+
+#[derive(Debug)]
+struct RWCbty<T> {
+  value : Arc<Mutex<T>>
 }
 
 // A capability is a pointer to/wrapper over T
 // Variants are derived by the default permissions
+#[derive(Debug)]
 enum Capability<T> {
   RCbty(RCbty<T>),
-  WCbty,
-  RWCbty,
+  WCbty(WCbty<T>),
+  RWCbty(RWCbty<T>),
   // &c.
+}
+
+impl<T : fmt::Display> fmt::Display for Capability<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+      write!(f, "Capability")
+    }
+}
+
+impl<T : PartialEq> PartialEq for Capability<T> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+          (Self::RCbty(l0), Self::RCbty(r0)) => false,
+          _ => core::mem::discriminant(self) == core::mem::discriminant(other),
+        }
+    }
+}
+
+fn mk_capability<T>(x : T, r : bool, w : bool, e : bool)
+  -> Result<Capability<T>, CError> {
+  let v = Arc::new(Mutex::new(x));
+  match (r,w,e) {
+    (true, true, true) => todo!(),
+    (true, true, false) => Ok(Capability::RWCbty(RWCbty { value : v })),
+    (true, false, true) => todo!(),
+    (true, false, false) => Ok(Capability::RCbty(RCbty { value : v })),
+    (false, true, true) => todo!(),
+    (false, true, false) => Ok(Capability::WCbty(WCbty { value : v })),
+    (false, false, true) => todo!(),
+    (false, false, false) => todo!(),
+  }
+}
+
+fn cp_capability<T>(x : &Capability<T>) -> Result<Capability<T>,CError> {
+  if canRead(x) {
+    match x {
+      Capability::RCbty(y) =>
+        Ok(Capability::RCbty(RCbty { value : y.value.clone() })),
+      Capability::RWCbty(y) =>
+        Ok(Capability::RWCbty(RWCbty { value : y.value.clone() })),
+      Capability::WCbty(_) => unimplemented!("impossible case (Capability)")
+    }
+  } else {
+    Err(CError())
+  }
+}
+
+fn rmW_capability<T>(x : Capability<T>) -> Result<Capability<T>, CError> {
+  if canWrite(&x) {
+    match x {
+    Capability::RCbty(_y) =>
+      unimplemented!("impossible case (rmW_capability"),
+    Capability::RWCbty(y) =>
+      Ok(Capability::RCbty(RCbty { value : y.value.clone() })),
+    Capability::WCbty(_y) =>
+      todo!("reduces to nothing (rmW_capability"),
+    }
+  } else {
+    Err(CError())
+  }
 }
 
 // The problem is that we still don't know what operation we can apply to the
@@ -346,8 +568,8 @@ enum Capability<T> {
 // as well as things like Show (e.g. Show, Eq, Ord)
 fn ceq<T : Eq + Copy>(x : Capability<T>, y : Capability<T>) -> Result<bool, CError> {
   if canRead(&x) && canRead(&y) {
-    let x = getValue(x);
-    let y = getValue(y);
+    let x = getValue(&x);
+    let y = getValue(&y);
     Ok(x == y)
   } else {
     Err(CError())
@@ -371,24 +593,55 @@ impl PartialEq for CError {
       false
     }
 }
+impl PartialOrd for CError {
+  fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+    // all errors are equal, but some are more equal than others
+    Some(cmp::Ordering::Equal)
+  }
+}
 
 
 fn canRead<T>(x : &Capability<T>) -> bool {
   match x {
     Capability::RCbty(_y) => true,
-    Capability::WCbty => false,
-    Capability::RWCbty => true
+    Capability::WCbty(_y) => false,
+    Capability::RWCbty(_y) => true
   }
 }
 
-fn getValue<T : Copy>(x : Capability<T>) -> Result<T,CError> {
+fn canWrite<T>(x : &Capability<T>) -> bool {
+  match x {
+    Capability::RCbty(_y) => false,
+    Capability::WCbty(_y) => true,
+    Capability::RWCbty(_y) => true
+  }
+}
+
+fn getValue<T : Copy>(x : &Capability<T>) -> Result<T,CError> {
   match x {
     Capability::RCbty(y) => {
       let z = y.value.lock().unwrap();
       Ok(*z)
     },
-    Capability::WCbty => todo!(),
-    Capability::RWCbty => todo!()
+    Capability::WCbty(_y) => Err(CError()),
+    Capability::RWCbty(y) => {
+      let z = y.value.lock().unwrap();
+      Ok(*z)
+    }
   }
+}
+
+fn elem<T>(x : &Capability<T>, ys : &Vec<Capability<T>>) -> bool 
+  where T : PartialEq + std::fmt::Debug {
+  for y in ys {
+    println!("x : {:#?}\ny : {:#?}", &x, &y);
+    if x == y { return true }
+  }
+  return false
+}
+
+fn apply<T,S>(x : &mut Capability<T>, f : &dyn Fn(MutexGuard<T>) -> S)
+  -> Result<S, CError> {
+  todo!()
 }
 
