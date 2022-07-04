@@ -150,6 +150,12 @@ impl fmt::Display for PL3 {
 async fn c(role : &mut C) -> Result<(), Box<dyn Error>> {
   try_session(role, |s : SimpleBankC<'_, _>|  async {
     let m : PL1 = PL1 { accountSrc: 1, accountTgt: 2, amount: 10 };
+    let x = Mutex::new(42);
+    let x2 = Mutex::new(42);
+    let c : Capability<u32> = crate::Capability::RCbty(RCbty{ value : x });
+    let c2 : Capability<u32> = crate::Capability::RCbty(RCbty{ value : x2 });
+    let y = ceq(c,c2);
+    println!("y : {:#?}", y);
     let s = s.send(Transfer(m)).await?;
     match s.branch().await? {
       SimpleBankC1::Ok(x, end) => {
@@ -338,27 +344,32 @@ enum Capability<T> {
 // Let's assume that we're dealing with an integer (we're sending the reference)
 // We therefore want to be able to apply logical operations over the capability
 // as well as things like Show (e.g. Show, Eq, Ord)
-fn ceq(x : Capability<i32>, y : Capability<i32>) -> Result<bool, CError> {
+fn ceq<T : Eq + Copy>(x : Capability<T>, y : Capability<T>) -> Result<bool, CError> {
   if canRead(&x) && canRead(&y) {
     let x = getValue(x);
     let y = getValue(y);
     Ok(x == y)
   } else {
-    todo!()
+    Err(CError())
   }
 }
 
 #[derive(Debug)]
 struct CError();
-impl<T : fmt::Debug,U : fmt::Debug> fmt::Display for CError {
+impl fmt::Display for CError {
   fn fmt(&self, f : &mut fmt::Formatter) -> fmt::Result {
     write!(f, "CError")
   }
 }
-impl<T : fmt::Debug,U : fmt::Debug> Error for CError {
+impl Error for CError {
   fn description(&self) -> &str {
     "CErr"
   }
+}
+impl PartialEq for CError {
+    fn eq(&self, other: &Self) -> bool {
+      false
+    }
 }
 
 
@@ -370,18 +381,11 @@ fn canRead<T>(x : &Capability<T>) -> bool {
   }
 }
 
-fn getValue<T>(x : Capability<T>) -> Result<T,CError> {
+fn getValue<T : Copy>(x : Capability<T>) -> Result<T,CError> {
   match x {
     Capability::RCbty(y) => {
-      let z = sync::Mutex::get_mut(y);
-      todo!()
-      // match y.value.lock() {
-      //   Ok(z) => {
-      //     let w = z.unwrap();
-      //     todo!()
-      //   },
-      //   Err(_) => todo!(),
-      // }
+      let z = y.value.lock().unwrap();
+      Ok(*z)
     },
     Capability::WCbty => todo!(),
     Capability::RWCbty => todo!()
